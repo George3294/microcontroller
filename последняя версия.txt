@@ -1,0 +1,252 @@
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <Ethernet.h>
+#include <SPI.h>
+#include <TextFinder.h> //для обработки GET запроса
+int get = 0; //для обработки GET запроса
+// Подключаем датчик температуры к пину 2
+#define ONE_WIRE_BUS 2
+byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+IPAddress ip(10, 0, 0, 20); // IP адрес (изменить в title)
+EthernetServer server(80);
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+#define PIN_RELAY_Heater 5 // Определяем пин, используемый для подключения реле
+#define PIN_RELAY_Conditioner 6 // Определяем пин, используемый для подключения реле
+float t_max = 30; //Определение порогового значения максимального
+float t_min = 26; //Определение порогового значения минимального
+int t_html_h = 0; //переменная для передачи состояни нагревателя(вкл)
+int t_html_h_1 = 1; ////переменная для передачи состояни нагревателя(выкл)
+int t_html_c = 3; //переменная для передачи состояни кондиционера(вкл)
+int t_html_c_4 = 4; ////переменная для передачи состояни кондиционера(выкл)
+int get_on = 0; //переменная для включения/отключения самоуправления
+int get_down = 1; // переменная для выключения самоуправления
+
+void setup() {
+    pinMode(PIN_RELAY_Heater, OUTPUT); // Объявляем пин реле как выход
+    digitalWrite(PIN_RELAY_Heater, HIGH); // Выключаем реле - посылаем высокий сигнал
+    pinMode(PIN_RELAY_Conditioner, OUTPUT); // Объявляем пин реле как выход
+    Serial.println("Heater relay active");
+    pinMode(PIN_RELAY_Conditioner, OUTPUT); // Объявляем пин реле как выход
+    digitalWrite(PIN_RELAY_Conditioner, HIGH); // Выключаем реле - посылаем высокий сигнал
+    Serial.println("Сonditioner relay active");
+    Serial.begin(9600);
+    Ethernet.begin(mac, ip);
+    server.begin();
+    Serial.println("server up");
+    sensors.begin();
+}
+
+void loop() {
+  sensors.requestTemperatures(); // Считываем температуру с датчика 
+float tempC = sensors.getTempCByIndex(0); // Получаем температуру в градусах Цельсия
+if (tempC != DEVICE_DISCONNECTED_C) {
+Serial.print("Температура: ");
+Serial.print(tempC);
+Serial.println(" градусов Цельсия");
+} else {
+Serial.println("Ошибка чтения температуры");
+}
+delay(1000); // Ждем секунду перед повторным измерением
+digitalWrite(PIN_RELAY_Heater, LOW); // Включаем реле - посылаем низкий уровень сигнала
+digitalWrite(PIN_RELAY_Heater, HIGH); // Отключаем реле - посылаем высокий уровень сигнала
+Serial.println("Heater relay active");
+delay(1000);
+digitalWrite(PIN_RELAY_Conditioner, LOW); // Включаем реле - посылаем низкий уровень сигнала
+digitalWrite(PIN_RELAY_Conditioner, HIGH); // Отключаем реле - посылаем высокий уровень сигнала
+Serial.println("Сonditioner relay active");
+delay(1000);
+
+if(get_on == 0) // если автоматическое управление включено
+{
+digitalWrite(PIN_RELAY_Conditioner, HIGH); //отключаем кондиционер
+t_html_c = 3;
+if(tempC >= t_max ) //если температура с датчика больше верхнего порога
+{
+t_html_h = 0;
+digitalWrite(PIN_RELAY_Heater, HIGH); // Отключаем реле - посылаем высокий уровень сигнала
+digitalWrite(PIN_RELAY_Conditioner, LOW); // Включаем реле - посылаем низкий уровень сигнала
+Serial.println("relay off");
+}
+if (tempC <= t_min) //если температура с датчика меньше текущей температуры
+{
+t_html_h = 1;
+digitalWrite(PIN_RELAY_Heater, LOW); // Включаем реле - посылаем низкий уровень сигнала
+//digitalWrite(PIN_RELAY_Conditioner, HIGH); // Отключаем реле - посылаем высокий уровень сигнала
+Serial.println("relay on");
+}
+}
+else // если автоуправление НЕ включено
+{
+if( get == 0 ) //если нажата кнопка "отключить "
+{
+t_html_h = 0; //передаем на веб страницу статус "отключено" для нагревателя
+digitalWrite(PIN_RELAY_Heater, HIGH); // Отключаем реле - посылаем высокий уровень сигнала
+//t_html_c_4 = 4
+//digitalWrite(PIN_RELAY_Conditioner, HIGH); // Отключаем реле - посылаем высокий уровень сигнала
+//Serial.println("relay off");
+}
+else if(get == 1) //если нажата кнопка "включить "
+{
+t_html_h = 1; //передаем на веб страницу статус "включено" для нагревателя
+digitalWrite(PIN_RELAY_Heater, LOW); // Включаем реле - посылаем низкий уровень сигнала
+//t_html_c_4 = 4
+//digitalWrite(PIN_RELAY_Conditioner, LOW); // Включаем реле - посылаем высокий уровень сигнала
+//Serial.println("relay on");
+}
+else if(get == 3) //если нажата кнопка "включить "
+{
+t_html_c = 3; //передаем на веб страницу статус "отключено" для кондиционера
+digitalWrite(PIN_RELAY_Conditioner, HIGH); // Отключаем реле - посылаем низкий уровень сигнала
+//Serial.println("relay on");
+}
+else if(get == 4) //если нажата кнопка "включить "
+{
+t_html_c = 4; //передаем на веб страницу статус "включено"для кондиционера
+digitalWrite(PIN_RELAY_Conditioner, LOW); // Включаем реле - посылаем низкий уровень сигнала
+//Serial.println("relay on");
+}
+}
+//запуск сервера:
+EthernetClient client = server.available();
+if (client)
+{
+TextFinder response(client);
+// Проверяем подключен ли клиент к серверу
+while (client.connected())
+{
+if (client.available()) { // данные от клиента доступны для чтения
+
+if (response.find("GET /")) { //для обработки GET запроса
+if (response.find("p="))
+{
+get = response.getValue();
+if (get == 1 || get == 0 || get == 3 ||get == 4){
+get_on = 1;
+}
+else if(get == 2){
+get_on = 0;
+}
+
+}
+//Serial.println(get);
+} //для обработки GET запроса
+
+// Выводим HTML страницу
+Serial.println("http runing");
+client.println("HTTP/1.1 200 OK");
+client.println("Content-Type: text/html");
+client.println();
+client.println();
+client.println("<!DOCTYPE html>");
+client.println("<html lang=\"ru\">");
+client.println("<head>");
+client.println("<meta charset=\"UTF-8\">");
+client.println("<meta http-equiv=\"refresh\" content=\"5\">"); //обновление страницы раз в "x\" секунд
+client.println("<title>Новая НС</title>");
+client.println("</head>");
+
+client.println("<body>");
+//client.println("<p><h1>Температура в УДС</h1></p>");
+client.println("<table width=""300px"" border=""1"" cellspacing=""0"" cellpadding=""20"">");
+//client.println("<caption>температура на станции х</caption>");
+
+//client.println("<tr>");
+//client.println("<th>Температура в УДС </th><th></th>");
+//client.println("</tr>");
+
+client.println("<tr>");
+
+client.println("<th> Новая НС: </th>" );
+client.println("<th>");
+client.println(tempC);
+client.println("</th>");
+
+client.println("</tr>");
+
+client.println("<tr>");
+
+
+client.println("<th>");
+//client.println(h);
+client.println("</th>");
+
+//client.println("</p>");
+
+client.println("</tr>");
+
+client.println("<tr>");
+
+
+client.println("<th>Нагреватель: </th><th>");
+
+if( t_html_h == 0 ){
+client.println("отключен </th>");
+digitalWrite(PIN_RELAY_Heater, HIGH); // Отключаем реле - посылаем высокий уровень сигнала
+}
+
+else if(t_html_h == 1){
+client.println("включен </th>");
+digitalWrite(PIN_RELAY_Heater, LOW); // Включаем реле - посылаем низкий уровень сигнала
+}
+
+//client.println("</p>");
+client.println("</tr>");
+
+client.println("<tr>");
+
+client.println("<th>Кондиционер: </th><th>");
+
+if( t_html_c == 3 ){
+client.println("отключен </th>");
+}
+
+else if(t_html_c == 4){
+client.println("включен</th>");
+}
+
+//client.println("</p>");
+client.println("</tr>");
+
+client.println("<tr>");
+
+client.println("<th>Автоуправление: </th><th> ");
+if(get_on == 0 ){
+client.println("Включено</th>");
+//digitalWrite(PIN_RELAY, HIGH); // Отключаем реле - посылаем высокий уровень сигнала
+}
+else{
+client.println("Отключено</th>");
+//digitalWrite(PIN_RELAY, LOW); // Включаем реле - посылаем низкий уровень сигнала
+}
+client.println("</tr>");
+
+client.println("<tr>");
+
+client.println("<th> Управление Нагревателем: </th> ");
+client.println("<th><br><a href=\"?p=1\"><button>Включить</button></a><a href=\"?p=0\"><button>Отключить</button></a></th> ");
+client.println("</tr>");
+
+client.println("<tr>");
+
+client.println("<th> Управление Кондиционером: </th> ");
+client.println("<th> <br><a href=\"?p=4\"><button>Включить</button></a><a href=\"?p=3\"><button>Отключить</button></a></p> </th>");
+
+client.println("</tr>");
+
+client.println("<tr>");
+
+client.println("<th><p><a href=\"?p=2\"><button>Включить автоуправление</button></a></th>");
+client.println("</tr>");
+//client.println("<th><p><a href=\"?p=0\"><button>Отключить автоуправление</button></a></th>");
+//client.println("</tr>");
+//client.println("<p><a href=\"?p=1\"><button>Включить</button></a><br><a href=\"?p=0\"><button>Отключить</button></a><br><a href=\"?p=2\"><button>Вернуть самоуправление</button></a></p>");
+
+client.println("</body>");
+client.println("</html>");
+client.stop();
+}
+}
+}
+}
